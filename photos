@@ -1,0 +1,3 @@
+wget https://source.unsplash.com/random/800x600 -O img1.jpg
+wget https://source.unsplash.com/random/800x600 -O img2.jpg
+wget https://source.unsplash.com/random/800x600 -O img3.jpg
