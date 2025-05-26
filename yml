@@ -1,0 +1,30 @@
+version: '3.9'
+services:
+  photoprism:
+    image: photoprism/photoprism:latest
+    container_name: photoprism
+    depends_on:
+      - mariadb
+    ports:
+      - "2342:2342"
+    environment:
+      PHOTOPRISM_ADMIN_PASSWORD: "yourpassword"
+      PHOTOPRISM_ORIGINALS_PATH: "/photoprism/originals"
+      PHOTOPRISM_DEBUG: "false"
+      PHOTOPRISM_PUBLIC: "false"
+    volumes:
+      - ./photoprism/originals:/photoprism/originals
+      - ./photoprism/storage:/photoprism/storage
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:10.5
+    container_name: mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: yourpassword
+      MYSQL_DATABASE: photoprism
+      MYSQL_USER: photoprism
+      MYSQL_PASSWORD: photoprismpassword
+    volumes:
+      - ./db:/var/lib/mysql
