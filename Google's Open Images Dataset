@@ -1,2 +1,2 @@
-wget https://storage.googleapis.com/openimages/2018_04/validation/validation-images.tgz
-tar -xvzf validation-images.tgz
+wget https://cs.umd.edu/~devans/data/openimages_sample_1gb.zip
+unzip openimages_sample_1gb.zip -d test-images
