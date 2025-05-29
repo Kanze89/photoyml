@@ -22,7 +22,8 @@ st.title("AI Photo Explorer")
 @st.cache_resource
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    return clip.load("ViT-B/32", device=device)
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    return model, preprocess, device
 
 @st.cache_data
 def load_embeddings():
@@ -43,88 +44,77 @@ def load_faces():
             return json.load(f)
     return {}
 
-model, preprocess = load_model()
+model, preprocess, device = load_model()
 vectors = load_embeddings()
 tags = load_tags()
 faces = load_faces()
 
-# --- SIDEBAR FILTERS ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("🔎 Filters")
+    st.header("Search & Filters")
 
-    search_query = st.text_input("Search by text (CLIP)").strip().lower()
-    tag_filter = st.text_input("Search by tag").strip().lower()
-
-    show_faces = st.checkbox("Show face cluster filter", value=False)
-    selected_face = ""
-    if show_faces and faces:
-        face_options = sorted(set(face for face_list in faces.values() for face in face_list))
-        selected_face = st.selectbox("Filter by face cluster", [""] + face_options)
-
+    search_query = st.text_input("Search by tag or keyword").strip().lower()
     uploaded = st.file_uploader("Upload image for reverse search", type=["jpg", "jpeg", "png"])
 
-# --- IMAGE FILTERING ---
-filtered_files = list(vectors.keys())
+    toggle_face = st.checkbox("Show face cluster filter")
+    selected_face = None
+    if toggle_face and faces:
+        face_options = sorted({f for face_list in faces.values() for f in face_list})
+        selected_face = st.selectbox("Face cluster", [""] + face_options)
+        if selected_face == "":
+            selected_face = None
 
-if tag_filter:
-    filtered_files = [
-        f for f in filtered_files
-        if tag_filter in [t.lower() for t in tags.get(f, [])]
-    ]
+# --- START IMAGE LIST ---
+all_files = list(vectors.keys())
 
-if selected_face:
-    filtered_files = [
-        f for f in filtered_files
-        if selected_face in faces.get(f, [])
-    ]
-
-# --- CLIP TEXT SEARCH ---
+# --- FILTER BY TEXT QUERY ---
 if search_query:
+    text = clip.tokenize([search_query]).to(device)
     with torch.no_grad():
-        text = clip.tokenize([search_query]).to(model[1])
-        text_features = model[0].encode_text(text)[0].cpu().numpy()
-    
+        text_features = model.encode_text(text).cpu().numpy()[0]
     def cosine(a, b): return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    scored = [(cosine(text_features, np.array(vectors[f])), f) for f in filtered_files]
-    filtered_files = [f for _, f in sorted(scored, reverse=True)[:48]]
+    scores = [(cosine(text_features, np.array(v)), k) for k, v in vectors.items()]
+    scores = sorted(scores, reverse=True)[:200]
+    all_files = [k for _, k in scores]
+
+# --- FILTER BY FACE CLUSTER ---
+if selected_face:
+    all_files = [f for f in all_files if selected_face in faces.get(f, [])]
 
 # --- REVERSE IMAGE SEARCH ---
 if uploaded:
     query_img = Image.open(uploaded).convert("RGB")
     st.image(query_img, caption="Uploaded Image", use_container_width=True)
-
     with torch.no_grad():
-        img_tensor = preprocess(query_img).unsqueeze(0).to(model[1])
-        img_vec = model[0].encode_image(img_tensor)[0].cpu().numpy()
+        query_tensor = preprocess(query_img).unsqueeze(0).to(device)
+        query_vec = model.encode_image(query_tensor)[0].cpu().numpy()
 
     def cosine(a, b): return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    results = [(cosine(img_vec, np.array(v)), k) for k, v in vectors.items()]
-    results = sorted(results, reverse=True)[:24]
-    filtered_files = [fname for _, fname in results]
+    results = [(cosine(query_vec, np.array(vectors[f])), f) for f in all_files if f in vectors]
+    results = sorted(results, reverse=True)[:48]
+    all_files = [f for _, f in results]
 
 # --- DISPLAY IMAGES ---
 selected_files = []
 cols = st.columns(4)
-
-for i, fname in enumerate(filtered_files[:48]):
-    img_path = os.path.join(photo_dir, fname)
-    if os.path.exists(img_path):
-        img = Image.open(img_path)
-        img.thumbnail((400, 400))
+for i, fname in enumerate(all_files[:48]):
+    path = os.path.join(photo_dir, fname)
+    if os.path.exists(path):
+        img = Image.open(path)
         col = cols[i % 4]
         col.image(img, caption=fname, use_container_width=True)
-        if col.checkbox(f"Select {fname}", key=fname):
+        if col.checkbox(f"Select {fname}", key=f"chk_{fname}"):
             selected_files.append(fname)
 
-# --- DOWNLOAD SELECTED ---
+# --- DOWNLOAD ZIP ---
 if selected_files:
-    with io.BytesIO() as buffer:
-        with zipfile.ZipFile(buffer, "w") as zip_file:
+    with io.BytesIO() as zip_buffer:
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
             for fname in selected_files:
                 zip_file.write(os.path.join(photo_dir, fname), arcname=fname)
         st.download_button(
-            label=f"📦 Download {len(selected_files)} as ZIP",
-            data=buffer.getvalue(),
-            file_name="selected_photos.zip",
+            label=f"Download {len(selected_files)} selected photos as ZIP",
+            data=zip_buffer.getvalue(),
+            file_name="photos.zip",
             mime="application/zip"
         )
