@@ -26,7 +26,7 @@ clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 # --- PAGE SETUP ---
 st.set_page_config(page_title="AI Photo Browser", layout="wide")
 st.title("AI Photo Browser")
-st.caption("Search by text or image. Browse by person or tag.")
+st.caption("Search by text or image. View original photos with captions and tags.")
 
 def cosine(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
@@ -80,48 +80,38 @@ if uploaded:
             caption = captions.get(fname, "—")
             col.image(img, caption=f"{fname}\n{caption}\nScore: {score:.2f}", use_container_width=True)
 
-# --- FACE GROUP BROWSER ---
+# --- ORIGINAL PHOTOS (BASED ON A SINGLE FACE GROUP) ---
 st.markdown("---")
-st.subheader("Browse by Face Cluster")
+st.subheader("Original Photos (Grouped)")
 
-groups = sorted([g for g in os.listdir(face_root) if os.path.isdir(os.path.join(face_root, g))])
-named_groups = [face_labels.get(g, g) for g in groups]
-selected_group = st.selectbox("Select a Person Group", named_groups)
-selected_folder = groups[named_groups.index(selected_group)]
+# Change this to the group folder you want to always show
+group_folder = "Person_0"
+thumbs_path = os.path.join(face_root, group_folder)
 
-st.markdown(f"**Faces in group: {selected_group}**")
-thumbs = sorted(os.listdir(os.path.join(face_root, selected_folder)))
-cols = st.columns(5)
-for i, fname in enumerate(thumbs):
-    col = cols[i % 5]
-    try:
-        img = Image.open(os.path.join(face_root, selected_folder, fname))
-        col.image(img, caption=fname, use_container_width=True)
-    except:
-        col.warning(f"Couldn't load: {fname}")
+# Fallback in case folder doesn't exist
+if not os.path.exists(thumbs_path):
+    st.warning(f"Face group folder not found: {thumbs_path}")
+    st.stop()
 
-# --- SHOW ORIGINAL PHOTOS ---
-st.markdown("---")
-if st.checkbox("Show original photos containing this person"):
-    st.subheader("Original Photo Matches")
-    orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
+thumbs = sorted(os.listdir(thumbs_path))
+orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
 
-    for i, of in enumerate(orig_files):
-        path = os.path.join(photo_root, of)
-        if not os.path.exists(path):
-            continue
+for i, of in enumerate(orig_files):
+    path = os.path.join(photo_root, of)
+    if not os.path.exists(path):
+        continue
 
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            try:
-                img = Image.open(path)
-                st.image(img, caption=of, use_container_width=True)
-            except:
-                st.warning(f"Failed: {of}")
-        with col2:
-            st.markdown(f"**Caption:** {captions.get(of, 'None')}")
-            tags = detections.get(of, [])
-            st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
-            with open(path, "rb") as f:
-                st.download_button("Download", f, file_name=of, mime="image/jpeg")
-        st.markdown("---")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        try:
+            img = Image.open(path)
+            st.image(img, caption=of, use_container_width=True)
+        except:
+            st.warning(f"Failed to load: {of}")
+    with col2:
+        st.markdown(f"**Caption:** {captions.get(of, 'None')}")
+        tags = detections.get(of, [])
+        st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
+        with open(path, "rb") as f:
+            st.download_button("Download Photo", f, file_name=of, mime="image/jpeg")
+    st.markdown("---")
