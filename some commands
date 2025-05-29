@@ -1,0 +1,13 @@
+mkdir -p models/places365
+cd models/places365
+
+# Download model weights
+wget http://places2.csail.mit.edu/models_places365/resnet18_places365.pth.tar
+
+# Download category and label files
+wget https://raw.githubusercontent.com/csailvision/places365/master/categories_places365.txt
+wget https://raw.githubusercontent.com/csailvision/places365/master/IO_places365.txt
+wget https://raw.githubusercontent.com/csailvision/places365/master/labels_sunattribute.txt
+wget https://raw.githubusercontent.com/csailvision/places365/master/label_to_category.txt
+
+cd ../../  # Go back to your app folder
