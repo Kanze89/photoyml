@@ -1,162 +1,85 @@
 import streamlit as st
 import os
 import json
-import torch
 import clip
+import torch
 import numpy as np
 from PIL import Image
-import zipfile
-import io
 
 # --- CONFIG ---
-face_root = "../face_clusters"
-photo_root = "../photoprism/originals/flickr30k_images"
-caption_file = "../captions_blip.json"
-detection_file = "../detections_yolo.json"
-clip_file = "../clip_embeddings.json"
-label_file = "../face_labels.json"
-
-# --- LOAD DATA ---
-captions = json.load(open(caption_file)) if os.path.exists(caption_file) else {}
-detections = json.load(open(detection_file)) if os.path.exists(detection_file) else {}
-clip_vectors = json.load(open(clip_file)) if os.path.exists(clip_file) else {}
-face_labels = json.load(open(label_file)) if os.path.exists(label_file) else {}
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+photo_dir = "../photoprism/originals/flickr30k_images"
+embedding_file = "../clip_embeddings.json"
+tag_file = "scene_combined.json"  # or detections_yolo.json if merged
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="AI Photo Browser", layout="wide")
-st.title("AI Photo Browser")
-st.caption("Search by text or image. Filter by tags and faces. Download results.")
+st.set_page_config(page_title="AI Photo Explorer", layout="wide")
+st.title("AI Photo Explorer")
 
-def cosine(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+# --- CACHING ---
+@st.cache_resource
+def load_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return clip.load("ViT-B/32", device=device)
 
-# --- TEXT SEARCH ---
-query = st.text_input("Text Search", placeholder="e.g. a child wearing helmet")
+@st.cache_data
+def load_embeddings():
+    with open(embedding_file) as f:
+        return json.load(f)
 
-if query and clip_vectors:
-    st.caption("Searching with CLIP text encoder...")
-    with torch.no_grad():
-        tokens = clip.tokenize([query]).to(device)
-        text_vec = clip_model.encode_text(tokens)[0].cpu().numpy()
+@st.cache_data
+def load_tags():
+    if os.path.exists(tag_file):
+        with open(tag_file) as f:
+            return json.load(f)
+    return {}
 
-    results = [(cosine(text_vec, np.array(v)), k) for k, v in clip_vectors.items()]
-    top = sorted(results, reverse=True)[:12]
+model, preprocess = load_model()
+vectors = load_embeddings()
+tags = load_tags()
 
-    st.subheader("Top Matches (Text Search)")
-    cols = st.columns(4)
-    for i, (score, fname) in enumerate(top):
-        path = os.path.join(photo_root, fname)
-        if os.path.exists(path):
-            col = cols[i % 4]
-            img = Image.open(path)
-            caption = captions.get(fname, "—")
-            col.image(img, caption=f"{fname}\n{caption}\nScore: {score:.2f}", use_container_width=True)
+# --- SIDEBAR FILTER ---
+st.sidebar.header("🔎 Tag Search")
+search_tag = st.sidebar.text_input("Search by tag (e.g. horse, mountain, forest):").lower()
+
+# --- UPLOAD IMAGE FOR REVERSE SEARCH ---
+uploaded = st.file_uploader("Upload a photo to find similar images", type=["jpg", "jpeg", "png"])
+
+# --- FILTER IMAGES BY TAG IF PROVIDED ---
+all_files = list(vectors.keys())
+if search_tag:
+    all_files = [f for f in all_files if search_tag in [t.lower() for t in tags.get(f, [])]]
+
+# --- PAGE CONTROLS ---
+PAGE_SIZE = 12
+page = st.sidebar.number_input("Page", 0, max(0, len(all_files) // PAGE_SIZE), step=1)
+subset = all_files[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
 
 # --- REVERSE IMAGE SEARCH ---
-st.markdown("---")
-st.subheader("Reverse Image Search (Upload a Photo)")
-
-uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
-
 if uploaded:
     query_img = Image.open(uploaded).convert("RGB")
     st.image(query_img, caption="Uploaded Image", use_container_width=True)
 
     with torch.no_grad():
-        query_tensor = clip_preprocess(query_img).unsqueeze(0).to(device)
-        query_vec = clip_model.encode_image(query_tensor)[0].cpu().numpy()
+        query_tensor = preprocess(query_img).unsqueeze(0).to(model[0].device)
+        query_vec = model[0].encode_image(query_tensor)[0].cpu().numpy()
 
-    results = [(cosine(query_vec, np.array(v)), k) for k, v in clip_vectors.items()]
-    top = sorted(results, reverse=True)[:12]
+    def cosine(a, b): return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    results = [(cosine(query_vec, np.array(v)), k) for k, v in vectors.items()]
+    results = sorted(results, reverse=True)[:PAGE_SIZE]
+    subset = [fname for _, fname in results]
 
-    st.subheader("Top Matches (Image Similarity)")
-    cols = st.columns(4)
-    for i, (score, fname) in enumerate(top):
-        path = os.path.join(photo_root, fname)
-        if os.path.exists(path):
-            col = cols[i % 4]
-            img = Image.open(path)
-            caption = captions.get(fname, "—")
-            col.image(img, caption=f"{fname}\n{caption}\nScore: {score:.2f}", use_container_width=True)
+# --- DISPLAY IMAGES ---
+cols = st.columns(4)
+for i, fname in enumerate(subset):
+    img_path = os.path.join(photo_dir, fname)
+    if os.path.exists(img_path):
+        img = Image.open(img_path)
+        img.thumbnail((400, 400))
+        col = cols[i % 4]
+        col.image(img, caption=fname, use_container_width=True)
+        with open(img_path, "rb") as file:
+            col.download_button("📥 Download", file.read(), file_name=fname)
 
-# --- TAG + FACE SEARCH COMBO ---
+# --- FOOTER ---
 st.markdown("---")
-st.subheader("📂 Filter by Person + Tags")
-
-# Load face groups and tags
-groups = sorted([g for g in os.listdir(face_root) if os.path.isdir(os.path.join(face_root, g))])
-all_tags = sorted(set(tag for tags in detections.values() for tag in tags))
-named_groups = [face_labels.get(g, g) for g in groups]
-
-# Clear Filters
-if "person_select" not in st.session_state:
-    st.session_state.person_select = named_groups[0]
-if "tag_select" not in st.session_state:
-    st.session_state.tag_select = []
-
-if st.button("🔄 Clear Filters"):
-    st.session_state["person_select"] = named_groups[0]
-    st.session_state["tag_select"] = []
-    st.experimental_rerun()
-
-# Select person and tags
-selected_name = st.selectbox("Select Person", named_groups, key="person_select")
-selected_group = groups[named_groups.index(selected_name)]
-selected_tags = st.multiselect("Select Tags", all_tags, key="tag_select")
-
-# Get face-matched photos
-thumbs_path = os.path.join(face_root, selected_group)
-thumbs = sorted(os.listdir(thumbs_path))
-orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
-
-def matches_tags(file):
-    photo_tags = detections.get(file, [])
-    return all(tag in photo_tags for tag in selected_tags)
-
-filtered_files = [f for f in orig_files if matches_tags(f)]
-
-# Display results
-st.markdown("---")
-st.subheader("Filtered Results")
-
-selected_downloads = []
-
-if not filtered_files:
-    st.warning("No matching photos found.")
-else:
-    for of in filtered_files:
-        path = os.path.join(photo_root, of)
-        if not os.path.exists(path):
-            continue
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            img = Image.open(path)
-            st.image(img, caption=of, use_container_width=True)
-        with col2:
-            st.markdown(f"**Caption:** {captions.get(of, '—')}")
-            tags = detections.get(of, [])
-            st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
-            with open(path, "rb") as f:
-                st.download_button("Download Photo", f, file_name=of, mime="image/jpeg")
-            if st.checkbox(f"Include {of}", key=f"chk_{of}"):
-                selected_downloads.append(path)
-        st.markdown("---")
-
-# Bulk ZIP download
-if selected_downloads:
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as zipf:
-        for file in selected_downloads:
-            arcname = os.path.basename(file)
-            zipf.write(file, arcname)
-    zip_buffer.seek(0)
-    st.download_button(
-        label="⬇️ Download Selected as ZIP",
-        data=zip_buffer,
-        file_name="selected_photos.zip",
-        mime="application/zip"
-    )
+st.caption("⚡ Fast & flexible AI photo archive — powered by CLIP, YOLO, and Places365.")
