@@ -26,7 +26,7 @@ clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 # --- PAGE SETUP ---
 st.set_page_config(page_title="AI Photo Browser", layout="wide")
 st.title("AI Photo Browser")
-st.caption("Search by text or image. View original photos with captions and tags.")
+st.caption("Search by text or image. Filter by tags and faces. Download results.")
 
 def cosine(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
@@ -80,38 +80,54 @@ if uploaded:
             caption = captions.get(fname, "—")
             col.image(img, caption=f"{fname}\n{caption}\nScore: {score:.2f}", use_container_width=True)
 
-# --- ORIGINAL PHOTOS (BASED ON A SINGLE FACE GROUP) ---
+# --- TAG + FACE SEARCH COMBO ---
 st.markdown("---")
-st.subheader("Original Photos (Grouped by Face)")
+st.subheader("📂 Filter by Person + Tags")
 
-# You can change this to browse a different group manually
-group_folder = "Person_0"
-thumbs_path = os.path.join(face_root, group_folder)
+# Load face groups and tags
+groups = sorted([g for g in os.listdir(face_root) if os.path.isdir(os.path.join(face_root, g))])
+all_tags = sorted(set(tag for tags in detections.values() for tag in tags))
 
-# Handle missing group folder
-if not os.path.exists(thumbs_path):
-    st.warning(f"Face group folder not found: {thumbs_path}")
-    st.stop()
+# Select person
+named_groups = [face_labels.get(g, g) for g in groups]
+selected_name = st.selectbox("Select Person", named_groups)
+selected_group = groups[named_groups.index(selected_name)]
 
+# Select tags
+selected_tags = st.multiselect("Select Tags", all_tags)
+
+# Get photo filenames from face group
+thumbs_path = os.path.join(face_root, selected_group)
 thumbs = sorted(os.listdir(thumbs_path))
 orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
 
-for i, of in enumerate(orig_files):
-    path = os.path.join(photo_root, of)
-    if not os.path.exists(path):
-        continue
+# Filter photos by selected tags
+def matches_tags(file):
+    photo_tags = detections.get(file, [])
+    return all(tag in photo_tags for tag in selected_tags)
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        try:
+filtered_files = [f for f in orig_files if matches_tags(f)]
+
+# Show results
+st.markdown("---")
+st.subheader("Filtered Results")
+
+if not filtered_files:
+    st.warning("No matching photos found.")
+else:
+    for of in filtered_files:
+        path = os.path.join(photo_root, of)
+        if not os.path.exists(path):
+            continue
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
             img = Image.open(path)
             st.image(img, caption=of, use_container_width=True)
-        except:
-            st.warning(f"Failed to load: {of}")
-    with col2:
-        st.markdown(f"**Caption:** {captions.get(of, 'None')}")
-        tags = detections.get(of, [])
-        st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
-        with open(path, "rb") as f:
-            st.download_button("Download Photo", f, file_name=of, mime="image/jpeg")
-    st.markdown("---")
+        with col2:
+            st.markdown(f"**Caption:** {captions.get(of, '—')}")
+            tags = detections.get(of, [])
+            st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
+            with open(path, "rb") as f:
+                st.download_button("Download Photo", f, file_name=of, mime="image/jpeg")
+        st.markdown("---")
