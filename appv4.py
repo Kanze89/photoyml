@@ -5,6 +5,8 @@ import torch
 import clip
 import numpy as np
 from PIL import Image
+import zipfile
+import io
 
 # --- CONFIG ---
 face_root = "../face_clusters"
@@ -87,30 +89,40 @@ st.subheader("📂 Filter by Person + Tags")
 # Load face groups and tags
 groups = sorted([g for g in os.listdir(face_root) if os.path.isdir(os.path.join(face_root, g))])
 all_tags = sorted(set(tag for tags in detections.values() for tag in tags))
-
-# Select person
 named_groups = [face_labels.get(g, g) for g in groups]
-selected_name = st.selectbox("Select Person", named_groups)
+
+# Clear Filters
+if "person_select" not in st.session_state:
+    st.session_state.person_select = named_groups[0]
+if "tag_select" not in st.session_state:
+    st.session_state.tag_select = []
+
+if st.button("🔄 Clear Filters"):
+    st.session_state["person_select"] = named_groups[0]
+    st.session_state["tag_select"] = []
+    st.experimental_rerun()
+
+# Select person and tags
+selected_name = st.selectbox("Select Person", named_groups, key="person_select")
 selected_group = groups[named_groups.index(selected_name)]
+selected_tags = st.multiselect("Select Tags", all_tags, key="tag_select")
 
-# Select tags
-selected_tags = st.multiselect("Select Tags", all_tags)
-
-# Get photo filenames from face group
+# Get face-matched photos
 thumbs_path = os.path.join(face_root, selected_group)
 thumbs = sorted(os.listdir(thumbs_path))
 orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
 
-# Filter photos by selected tags
 def matches_tags(file):
     photo_tags = detections.get(file, [])
     return all(tag in photo_tags for tag in selected_tags)
 
 filtered_files = [f for f in orig_files if matches_tags(f)]
 
-# Show results
+# Display results
 st.markdown("---")
 st.subheader("Filtered Results")
+
+selected_downloads = []
 
 if not filtered_files:
     st.warning("No matching photos found.")
@@ -130,4 +142,21 @@ else:
             st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
             with open(path, "rb") as f:
                 st.download_button("Download Photo", f, file_name=of, mime="image/jpeg")
+            if st.checkbox(f"Include {of}", key=f"chk_{of}"):
+                selected_downloads.append(path)
         st.markdown("---")
+
+# Bulk ZIP download
+if selected_downloads:
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for file in selected_downloads:
+            arcname = os.path.basename(file)
+            zipf.write(file, arcname)
+    zip_buffer.seek(0)
+    st.download_button(
+        label="⬇️ Download Selected as ZIP",
+        data=zip_buffer,
+        file_name="selected_photos.zip",
+        mime="application/zip"
+    )
