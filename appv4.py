@@ -82,13 +82,13 @@ if uploaded:
 
 # --- ORIGINAL PHOTOS (BASED ON A SINGLE FACE GROUP) ---
 st.markdown("---")
-st.subheader("Original Photos (Grouped)")
+st.subheader("Original Photos (Grouped by Face)")
 
-# Change this to the group folder you want to always show
+# You can change this to browse a different group manually
 group_folder = "Person_0"
 thumbs_path = os.path.join(face_root, group_folder)
 
-# Fallback in case folder doesn't exist
+# Handle missing group folder
 if not os.path.exists(thumbs_path):
     st.warning(f"Face group folder not found: {thumbs_path}")
     st.stop()
