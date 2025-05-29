@@ -24,12 +24,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 
 # --- UI SETUP ---
-st.set_page_config(page_title="\ud83d\udcf8 AI Photo Browser", layout="wide")
-st.title("\ud83e\udde0 AI Photo Browser")
+st.set_page_config(page_title="AI Photo Browser", layout="wide")
+st.title("AI Photo Browser")
 st.caption("Browse by face, search by text or image, and view AI-generated tags.")
 
-# --- \ud83d\udd0d Search Bar at Top ---
-query = st.text_input("\ud83d\udd0d Search your archive with natural language", placeholder="e.g. a child with helmet, a person riding a horse")
+# --- Search Bar at Top ---
+query = st.text_input("Search your archive with natural language", placeholder="e.g. a child with helmet, a person riding a horse")
 
 if query and clip_vectors:
     st.caption("Searching with CLIP...")
@@ -41,7 +41,7 @@ if query and clip_vectors:
     results = [(cosine(text_vec, np.array(v)), k) for k, v in clip_vectors.items()]
     top = sorted(results, reverse=True)[:12]
 
-    st.subheader("\ud83d\udd0d Top Matches")
+    st.subheader("Top Matches")
     cols = st.columns(4)
     for i, (score, fname) in enumerate(top):
         path = os.path.join(photo_root, fname)
@@ -49,15 +49,15 @@ if query and clip_vectors:
             col = cols[i % 4]
             try:
                 img = Image.open(path)
-                caption = captions.get(fname, "\u2014")
-                col.image(img, caption=f"{fname}\n\ud83d\udcdd {caption}\n\ud83d\udd0d {score:.2f}", use_container_width=True)
+                caption = captions.get(fname, "-")
+                col.image(img, caption=f"{fname}\nCaption: {caption}\nScore: {score:.2f}", use_container_width=True)
             except:
-                col.warning(f"\u26a0\ufe0f Error showing: {fname}")
+                col.warning(f"Error showing: {fname}")
 
 # --- FACE GROUP SELECT ---
 groups = sorted([g for g in os.listdir(face_root) if os.path.isdir(os.path.join(face_root, g))])
 named_groups = [face_labels.get(g, g) for g in groups]
-selected_group = st.sidebar.selectbox("\ud83d\udc64 Select a Person Group", named_groups)
+selected_group = st.sidebar.selectbox("Select a Person Group", named_groups)
 selected_folder = groups[named_groups.index(selected_group)]
 
 # --- FACE THUMBNAILS ---
@@ -70,11 +70,11 @@ for i, fname in enumerate(thumbs):
         img = Image.open(os.path.join(face_root, selected_folder, fname))
         col.image(img, caption=fname, use_container_width=True)
     except:
-        col.warning(f"\u274c Couldn't load: {fname}")
+        col.warning(f"Couldn't load: {fname}")
 
 # --- ORIGINAL PHOTOS FOR PERSON ---
 st.markdown("---")
-if st.checkbox("\ud83d\uddbc\ufe0f Show original photos containing this person"):
+if st.checkbox("Show original photos containing this person"):
     st.subheader("Original Photo Matches")
     orig_files = sorted(set([f.split("_face_")[0] + ".jpg" for f in thumbs]))
 
@@ -89,18 +89,18 @@ if st.checkbox("\ud83d\uddbc\ufe0f Show original photos containing this person")
                 img = Image.open(path)
                 st.image(img, caption=of, use_container_width=True)
             except:
-                st.warning(f"\u274c Failed: {of}")
+                st.warning(f"Failed: {of}")
         with col2:
-            st.markdown(f"**\ud83d\udcdd Caption:** {captions.get(of, 'None')}")
+            st.markdown(f"**Caption:** {captions.get(of, 'None')}")
             tags = detections.get(of, [])
-            st.markdown("**\ud83c\udff7 Tags:** " + (", ".join(tags) if tags else "None"))
+            st.markdown("**Tags:** " + (", ".join(tags) if tags else "None"))
             with open(path, "rb") as f:
-                st.download_button("\ud83d\udcc5 Download", f, file_name=of, mime="image/jpeg")
+                st.download_button("Download", f, file_name=of, mime="image/jpeg")
         st.markdown("---")
 
 # --- REVERSE IMAGE SEARCH ---
 st.markdown("---")
-st.header("\ud83d\udcc4 Reverse Image Search")
+st.header("Reverse Image Search")
 
 uploaded = st.file_uploader("Upload an image to find visually similar ones", type=["jpg", "jpeg", "png"])
 
@@ -122,5 +122,5 @@ if uploaded:
         if os.path.exists(path):
             col = cols[i % 4]
             img = Image.open(path)
-            caption = captions.get(fname, "\u2014")
-            col.image(img, caption=f"{fname}\n\ud83d\udcdd {caption}\n\ud83d\udd01 {score:.2f}", use_container_width=True)
+            caption = captions.get(fname, "-")
+            col.image(img, caption=f"{fname}\nCaption: {caption}\nScore: {score:.2f}", use_container_width=True)
