@@ -93,6 +93,47 @@ if uploaded:
     results = [(cosine(query_vec, np.array(vectors[f])), f) for f in all_files if f in vectors]
     results = sorted(results, reverse=True)[:48]
     all_files = [f for _, f in results]
+    
+# --- MULTI UPLOAD & PROCESS ---
+st.header("📤 Upload New Photos to Archive")
+
+multi_files = st.file_uploader("Upload photos", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+
+if multi_files:
+    st.info(f"{len(multi_files)} photos selected. Processing may take time.")
+    progress = st.progress(0)
+    new_photos = []
+
+    for i, file in enumerate(multi_files):
+        try:
+            # Save file
+            save_path = os.path.join(photo_dir, file.name)
+            with open(save_path, "wb") as f:
+                f.write(file.read())
+            new_photos.append(file.name)
+
+            # --- Run AI here ---
+            st.text(f"Processing {file.name} ...")
+
+            # Load Image
+            image = Image.open(save_path).convert("RGB")
+
+            # -- CAPTION with BLIP (optional)
+            # caption = run_blip_caption(image)  # You can implement this
+            # captions[file.name] = caption
+
+            # -- TAG with YOLO + Scene (optional)
+            # tags[file.name] = run_yolo_scene_tagging(image)
+
+            # -- FACE DETECTION (optional)
+            # faces[file.name] = run_face_detection(image)
+
+            progress.progress((i + 1) / len(multi_files))
+        except Exception as e:
+            st.error(f"Failed to process {file.name}: {e}")
+
+    st.success("✅ Upload & basic AI processing done!")
+    st.text("Don't forget to re-run tagging scripts or refresh the UI to see them.")
 
 # --- DISPLAY IMAGES ---
 selected_files = []
