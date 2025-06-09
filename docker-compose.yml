@@ -1,0 +1,9 @@
+  streamlit:
+    build: ./face_ui
+    container_name: streamlit
+    depends_on:
+      - photoprism
+    volumes:
+      - ./photoprism/originals:/app/photoprism/originals
+    ports:
+      - "8501:8501"
